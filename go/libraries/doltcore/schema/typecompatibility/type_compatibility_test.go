@@ -300,6 +300,14 @@ func (e extendedType) CollationCoercibility(ctx *sql.Context) (collation sql.Col
 	panic("unimplemented")
 }
 
+func (e extendedType) CastToType(ctx *sql.Context, typ sql.ExtendedType, val any) (any, sql.ConvertInRange, error) {
+	panic("unimplemented")
+}
+
+func (e extendedType) CommonType(ctx *sql.Context, typ sql.ExtendedType) sql.ExtendedType {
+	panic("unimplemented")
+}
+
 func (e extendedType) Compare(ctx context.Context, i interface{}, i2 interface{}) (int, error) {
 	panic("unimplemented")
 }
