@@ -27,12 +27,23 @@ func Table(
 	root doltdb.RootValue,
 	tableName string,
 ) (doltdb.TableName, *doltdb.Table, bool, error) {
+	return Relation(ctx, root, tableName, doltdb.TableSource{})
+}
+
+func Relation[
+	RelationType any,
+](
+	ctx *sql.Context,
+	root doltdb.RootValue,
+	tableName string,
+	relationSource doltdb.RelationSource[RelationType],
+) (doltdb.TableName, RelationType, bool, error) {
 	if UseSearchPath {
-		return TableWithSearchPath(ctx, root, tableName)
+		return RelationWithSearchPath(ctx, root, tableName, relationSource)
 	}
 
 	tName := doltdb.TableName{Schema: doltdb.DefaultSchemaName, Name: tableName}
-	tbl, correctedTableName, tblExists, err := doltdb.GetTableInsensitive(ctx, root, tName)
+	tbl, correctedTableName, tblExists, err := relationSource.GetRelation(ctx, root, tName)
 	tName.Name = correctedTableName
 	return tName, tbl, tblExists, err
 }
@@ -107,7 +118,27 @@ func TableNameWithSearchPath(
 		return candidate, true, nil
 	}
 
-	return doltdb.TableName{}, false, nil
+	// Reserved dolt_* system tables (e.g. dolt_nonlocal_tables) always live in the "dolt" namespace schema under
+	// search-path mode (see dtables.GetDoltNonlocalTablesName), never on a user's search_path. Users can't create
+	// tables in this reserved namespace (see doltdb.HasDoltPrefix), so this can't shadow a real user table; it's
+	// scoped to dolt_-prefixed names specifically so it doesn't change resolution of ordinary table names.
+	if !doltdb.HasDoltPrefix(tableName) {
+		return doltdb.TableName{}, false, nil
+	}
+	tablesInDoltSchema, err := root.GetTableNames(ctx, doltdb.DoltNamespace, true)
+	if err != nil {
+		return doltdb.TableName{}, false, err
+	}
+	correctedTableName, ok := sql.GetTableNameInsensitive(tableName, tablesInDoltSchema)
+	if !ok {
+		return doltdb.TableName{}, false, nil
+	}
+	candidate := doltdb.TableName{Name: correctedTableName, Schema: doltdb.DoltNamespace}
+	ok, err = root.HasTable(ctx, candidate)
+	if err != nil || !ok {
+		return doltdb.TableName{}, false, err
+	}
+	return candidate, true, nil
 }
 
 // TableWithSearchPath resolves a table name to a table in the root value, searching through the schemas in the search path.
@@ -116,16 +147,27 @@ func TableWithSearchPath(
 	root doltdb.RootValue,
 	tableName string,
 ) (doltdb.TableName, *doltdb.Table, bool, error) {
-	correctedName, ok, err := TableNameWithSearchPath(ctx, root, tableName)
+	return RelationWithSearchPath(ctx, root, tableName, doltdb.TableSource{})
+}
+
+func RelationWithSearchPath[
+	RelationType any,
+](
+	ctx *sql.Context,
+	root doltdb.RootValue,
+	tableName string,
+	relationSource doltdb.RelationSource[RelationType],
+) (correctedName doltdb.TableName, relation RelationType, ok bool, err error) {
+	correctedName, ok, err = TableNameWithSearchPath(ctx, root, tableName)
 	if err != nil || !ok {
-		return doltdb.TableName{}, nil, false, err
+		return doltdb.TableName{}, relation, false, err
 	}
-	tbl, ok, err := root.GetTable(ctx, correctedName)
+	relation, _, ok, err = relationSource.GetRelation(ctx, root, correctedName)
 	if err != nil {
-		return doltdb.TableName{}, nil, false, err
+		return doltdb.TableName{}, relation, false, err
 	} else if !ok {
 		// Should be impossible
-		return doltdb.TableName{}, nil, false, nil
+		return doltdb.TableName{}, relation, false, nil
 	}
-	return correctedName, tbl, true, nil
+	return correctedName, relation, true, nil
 }
