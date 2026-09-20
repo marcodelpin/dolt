@@ -1565,12 +1565,7 @@ func (t *AlterableDoltTable) AddColumn(ctx *sql.Context, column *sql.Column, ord
 		return errors.New("adding primary keys is not supported")
 	}
 
-	nullable := NotNull
-	if col.IsNullable() {
-		nullable = Null
-	}
-
-	updatedTable, err := addColumnToTable(ctx, root, table, t.tableName, col.Tag, col.Name, col.TypeInfo, nullable, column.Default, col.Comment, order)
+	updatedTable, err := addColumnToTable(ctx, root, table, t.tableName, col, order)
 	if err != nil {
 		return err
 	}
@@ -1728,10 +1723,22 @@ func (t *AlterableDoltTable) RewriteInserter(
 	newSch = schema.CopyChecksConstraints(oldSch, newSch)
 
 	isModifyColumn := newColumn != nil && oldColumn != nil
+	var fkc *doltdb.ForeignKeyCollection
 	if isColumnDrop(oldSchema, newSchema) {
 		newSch, err = dropIndexesOnDroppedColumn(newSch, oldSch, oldSchema, newSchema, err)
 		if err != nil {
 			return nil, err
+		}
+		fkc, err = ws.WorkingRoot().GetForeignKeyCollection(ctx)
+		if err != nil {
+			return nil, err
+		}
+		fkcChanged, err := rebindForeignKeyIndexes(t.TableName(), newSch, fkc)
+		if err != nil {
+			return nil, err
+		}
+		if !fkcChanged {
+			fkc = nil
 		}
 	} else if isModifyColumn {
 		newSch, err = modifyIndexesForTableRewrite(ctx, oldSch, oldColumn, newColumn, newSch)
@@ -1788,6 +1795,12 @@ func (t *AlterableDoltTable) RewriteInserter(
 	newRoot, err := ws.WorkingRoot().PutTable(ctx, t.TableName(), dt)
 	if err != nil {
 		return nil, err
+	}
+	if fkc != nil {
+		newRoot, err = newRoot.PutForeignKeyCollection(ctx, fkc)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	isPrimaryKeyDrop := len(oldSchema.PkOrdinals) > 0 && len(newSchema.PkOrdinals) == 0
@@ -2040,6 +2053,8 @@ func modifyIndexesForTableRewrite(ctx *sql.Context, oldSch schema.Schema, oldCol
 				IsVector:           index.IsVector(),
 				IsUserDefined:      index.IsUserDefined(),
 				Comment:            index.Comment(),
+				ColumnOrders:       index.ColumnOrders(),
+				OpClasses:          index.OpClasses(),
 				FullTextProperties: index.FullTextProperties(),
 				VectorProperties:   index.VectorProperties(),
 			})
@@ -2548,6 +2563,8 @@ func (t *AlterableDoltTable) createIndex(ctx *sql.Context, idx sql.IndexDef, key
 		IsUserDefined: true,
 		Comment:       idx.Comment,
 		Predicate:     predicateStr,
+		ColumnOrders:  idx.ColumnOrders(),
+		OpClasses:     idx.OpClasses(),
 		FullTextProperties: schema.FullTextProperties{
 			ConfigTable:      tableNames.Config,
 			PositionTable:    tableNames.Position,
