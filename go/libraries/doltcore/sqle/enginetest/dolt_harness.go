@@ -272,14 +272,28 @@ func (d *DoltHarness) NewEngine(t *testing.T) (enginetest.QueryEngine, error) {
 		var err error
 		d.statsSession, err = dsess.NewDoltSession(enginetest.NewBaseSession(), d.provider, d.multiRepoEnv.Config(), d.branchControl, d.statsPro, writer.NewWriteSession, nil, d.branchActivityTracker)
 		require.NoError(t, err)
+		// The stats worker outlives this engine and runs concurrently with the next
+		// engine's setup, which rewrites the harness fields. Capture everything the
+		// stats session needs now instead of reading it from d on the worker goroutine.
+		statsLocalConfig := d.multiRepoEnv.Config()
+		statsProvider := d.statsSession.Provider()
+		statsBranchControl := d.branchControl
+		statsActivityTracker := d.branchActivityTracker
+		var statsProRef *statspro.StatsController
 		ctxGen := func(ctx context.Context) (*sql.Context, error) {
 			client := sql.Client{Address: "localhost", User: "root"}
-			return sql.NewContext(context.Background(), sql.WithSession(d.newStatsSessionWithClient(client))), nil
+			dSession, err := dsess.NewDoltSession(sql.NewBaseSessionWithClientServer("address", client, 1), statsProvider.(dsess.DoltDatabaseProvider), statsLocalConfig, statsBranchControl, statsProRef, writer.NewWriteSession, nil, statsActivityTracker)
+			if err != nil {
+				return nil, err
+			}
+			dSession.SetCurrentDatabase("mydb")
+			return sql.NewContext(context.Background(), sql.WithSession(dSession)), nil
 		}
 		// xxx: stats threads can't be tied to single test cycle,
 		// this is only OK for enginetests
 		statsPro := statspro.NewStatsController(logrus.StandardLogger(), sql.NewBackgroundThreads(), d.multiRepoEnv.GetEnv(d.multiRepoEnv.GetFirstDatabase()))
 		d.statsPro = statsPro
+		statsProRef = statsPro
 
 		d.session, err = dsess.NewDoltSession(enginetest.NewBaseSession(), d.provider, d.multiRepoEnv.Config(), d.branchControl, d.statsPro, writer.NewWriteSession, d.gcSafepointController, d.branchActivityTracker)
 		require.NoError(t, err)
@@ -446,16 +460,6 @@ func (d *DoltHarness) newSessionWithClient(client sql.Client) *dsess.DoltSession
 	pro := d.session.Provider()
 
 	dSession, err := dsess.NewDoltSession(sql.NewBaseSessionWithClientServer("address", client, 1), pro.(dsess.DoltDatabaseProvider), localConfig, d.branchControl, d.statsPro, writer.NewWriteSession, d.gcSafepointController, d.branchActivityTracker)
-	dSession.SetCurrentDatabase("mydb")
-	require.NoError(d.t, err)
-	return dSession
-}
-
-func (d *DoltHarness) newStatsSessionWithClient(client sql.Client) *dsess.DoltSession {
-	localConfig := d.multiRepoEnv.Config()
-	pro := d.statsSession.Provider()
-
-	dSession, err := dsess.NewDoltSession(sql.NewBaseSessionWithClientServer("address", client, 1), pro.(dsess.DoltDatabaseProvider), localConfig, d.branchControl, d.statsPro, writer.NewWriteSession, nil, d.branchActivityTracker)
 	dSession.SetCurrentDatabase("mydb")
 	require.NoError(d.t, err)
 	return dSession
