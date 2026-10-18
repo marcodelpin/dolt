@@ -1046,6 +1046,32 @@ func RunDoltMergeTests(t *testing.T, h DoltEnginetestHarness) {
 	}
 }
 
+func RunDoltMergeBasesTableFunctionTests(t *testing.T, h DoltEnginetestHarness) {
+	cleanup := installTestCommitClock(&testCommitClock{})
+	defer cleanup()
+	for _, script := range MergeBasesTableFunctionScripts {
+		func() {
+			h := h.NewHarness(t)
+			defer h.Close()
+			h.Setup(setup.MydbData)
+			enginetest.TestScript(t, h, script)
+		}()
+	}
+}
+
+func RunDoltMergeBasesTableFunctionPreparedTests(t *testing.T, h DoltEnginetestHarness) {
+	cleanup := installTestCommitClock(&testCommitClock{})
+	defer cleanup()
+	for _, script := range MergeBasesTableFunctionScripts {
+		func() {
+			h := h.NewHarness(t)
+			defer h.Close()
+			h.Setup(setup.MydbData)
+			enginetest.TestScriptPrepared(t, h, script)
+		}()
+	}
+}
+
 func RunDoltMergePreparedTests(t *testing.T, h DoltEnginetestHarness) {
 	for _, script := range MergeScripts {
 		// harness can't reset effectively when there are new commits / branches created, so use a new harness for
@@ -1819,10 +1845,100 @@ func RunDoltCommitTests(t *testing.T, harness DoltEnginetestHarness) {
 	}
 }
 
+func RunDoltCommitAllTests(t *testing.T, harness DoltEnginetestHarness) {
+	defer harness.Close()
+	for _, script := range DoltCommitAllTests {
+		h := harness.NewHarness(t)
+		enginetest.TestScript(t, h, script)
+		h.Close()
+	}
+}
+
 func RunDoltCommitTestsPrepared(t *testing.T, harness DoltEnginetestHarness) {
 	defer harness.Close()
 	for _, script := range DoltCommitTests {
 		enginetest.TestScriptPrepared(t, harness, script)
+	}
+}
+
+func RunDoltCommitAllTestsPrepared(t *testing.T, harness DoltEnginetestHarness) {
+	defer harness.Close()
+	for _, script := range DoltCommitAllTests {
+		h := harness.NewHarness(t)
+		enginetest.TestScriptPrepared(t, h, script)
+		h.Close()
+	}
+}
+
+func RunDoltCommitAllTransactionTests(t *testing.T, harness DoltEnginetestHarness, prepared bool) {
+	defer harness.Close()
+	for _, script := range append(DoltCommitAllTransactionTests, MultiBranchHeadTransactionTests...) {
+		func() {
+			h := harness.NewHarness(t)
+			defer h.Close()
+			if prepared {
+				enginetest.TestTransactionScriptPrepared(t, h, script)
+			} else {
+				enginetest.TestTransactionScript(t, h, script)
+			}
+		}()
+	}
+}
+
+func RunMultiBranchTransactionTests(t *testing.T, harness DoltEnginetestHarness, prepared bool) {
+	defer harness.Close()
+	for _, script := range MultiBranchWorkingSetTransactionTests {
+		func() {
+			h := harness.NewHarness(t)
+			defer h.Close()
+			if prepared {
+				enginetest.TestTransactionScriptPrepared(t, h, script)
+			} else {
+				enginetest.TestTransactionScript(t, h, script)
+			}
+		}()
+	}
+}
+
+func RunMultiBranchCommitTests(t *testing.T, harness DoltEnginetestHarness, prepared bool) {
+	defer harness.Close()
+	for _, script := range DoltMultiBranchCommitTests {
+		func() {
+			h := harness.NewHarness(t)
+			defer h.Close()
+			if prepared {
+				enginetest.TestScriptPrepared(t, h, script)
+			} else {
+				enginetest.TestScript(t, h, script)
+			}
+		}()
+	}
+	for _, group := range []struct {
+		name  string
+		tests []queries.TransactionTest
+	}{
+		{
+			name:  "dolt_commit",
+			tests: MultiBranchExplicitCommitTransactions,
+		},
+		{
+			name:  "transaction_commit",
+			tests: MultiBranchAutomaticCommitTransactions,
+		},
+	} {
+		t.Run(group.name, func(t *testing.T) {
+			for _, script := range group.tests {
+				func() {
+					h := harness.NewHarness(t)
+					defer h.Close()
+					if prepared {
+						enginetest.TestTransactionScriptPrepared(t, h, script)
+					} else {
+						enginetest.TestTransactionScript(t, h, script)
+					}
+				}()
+			}
+		})
 	}
 }
 
