@@ -25,7 +25,7 @@ import (
 	gms "github.com/dolthub/go-mysql-server"
 	"github.com/dolthub/go-mysql-server/enginetest"
 	"github.com/dolthub/go-mysql-server/enginetest/queries"
-	"github.com/dolthub/go-mysql-server/enginetest/scriptgen/setup"
+	"github.com/dolthub/go-mysql-server/enginetest/setup"
 	"github.com/dolthub/go-mysql-server/server"
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/dolthub/go-mysql-server/sql/memo"
@@ -1054,10 +1054,32 @@ func RunDoltMergeTests(t *testing.T, h DoltEnginetestHarness) {
 	}
 }
 
+func RunDoltMergeMultipleBasesTests(t *testing.T, h DoltEnginetestHarness) {
+	for _, script := range AllMergeMultipleBasesScripts() {
+		func() {
+			h := h.NewHarness(t)
+			defer h.Close()
+			h.Setup(setup.MydbData)
+			enginetest.TestScript(t, h, script)
+		}()
+	}
+}
+
+func RunDoltMergeMultipleBasesPreparedTests(t *testing.T, h DoltEnginetestHarness) {
+	for _, script := range AllMergeMultipleBasesScripts() {
+		func() {
+			h := h.NewHarness(t)
+			defer h.Close()
+			h.Setup(setup.MydbData)
+			enginetest.TestScriptPrepared(t, h, script)
+		}()
+	}
+}
+
 func RunDoltMergeBasesTableFunctionTests(t *testing.T, h DoltEnginetestHarness) {
 	cleanup := installTestCommitClock(&testCommitClock{})
 	defer cleanup()
-	for _, script := range MergeBasesTableFunctionScripts {
+	for _, script := range concatScripts(MergeBasesTableFunctionScripts, ThreeDotScripts) {
 		func() {
 			h := h.NewHarness(t)
 			defer h.Close()
@@ -1070,7 +1092,7 @@ func RunDoltMergeBasesTableFunctionTests(t *testing.T, h DoltEnginetestHarness) 
 func RunDoltMergeBasesTableFunctionPreparedTests(t *testing.T, h DoltEnginetestHarness) {
 	cleanup := installTestCommitClock(&testCommitClock{})
 	defer cleanup()
-	for _, script := range MergeBasesTableFunctionScripts {
+	for _, script := range concatScripts(MergeBasesTableFunctionScripts, ThreeDotScripts) {
 		func() {
 			h := h.NewHarness(t)
 			defer h.Close()

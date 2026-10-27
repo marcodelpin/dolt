@@ -27,7 +27,7 @@ import (
 
 	"github.com/dolthub/go-mysql-server/enginetest"
 	"github.com/dolthub/go-mysql-server/enginetest/queries"
-	"github.com/dolthub/go-mysql-server/enginetest/scriptgen/setup"
+	"github.com/dolthub/go-mysql-server/enginetest/setup"
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/dolthub/go-mysql-server/sql/mysql_db"
 	"github.com/dolthub/go-mysql-server/sql/plan"
@@ -1607,6 +1607,16 @@ func TestDoltMerge(t *testing.T) {
 	RunDoltMergeTests(t, h)
 }
 
+func TestDoltMergeMultipleBases(t *testing.T) {
+	h := newDoltEnginetestHarness(t)
+	RunDoltMergeMultipleBasesTests(t, h)
+}
+
+func TestDoltMergeMultipleBasesPrepared(t *testing.T) {
+	h := newDoltEnginetestHarness(t)
+	RunDoltMergeMultipleBasesPreparedTests(t, h)
+}
+
 func TestDoltMergeBasesTableFunction(t *testing.T) {
 	h := newDoltEnginetestHarness(t)
 	RunDoltMergeBasesTableFunctionTests(t, h)
@@ -1803,13 +1813,24 @@ func TestBackupsSystemTable(t *testing.T) {
 }
 
 func TestHistorySystemTable(t *testing.T) {
-	harness := newDoltEnginetestHarness(t).WithParallelism(2)
-	RunHistorySystemTableTests(t, harness)
+	forEachEngine(t, RunHistorySystemTableTests)
 }
 
 func TestHistorySystemTablePrepared(t *testing.T) {
-	harness := newDoltEnginetestHarness(t).WithParallelism(2)
-	RunHistorySystemTableTestsPrepared(t, harness)
+	forEachEngine(t, RunHistorySystemTableTestsPrepared)
+}
+
+// forEachEngine runs |f| as an engine subtest, then as a server engine subtest.
+//
+// Some behavior differs over the wire, which the engine never exercises.
+// A suite that passes on the engine can still fail on the server engine.
+func forEachEngine(t *testing.T, f func(t *testing.T, h DoltEnginetestHarness)) {
+	t.Run("engine", func(t *testing.T) {
+		f(t, newDoltEnginetestHarness(t))
+	})
+	t.Run("server engine", func(t *testing.T) {
+		f(t, newDoltServerTestHarness(t))
+	})
 }
 
 func TestBrokenHistorySystemTablePrepared(t *testing.T) {
