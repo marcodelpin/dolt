@@ -84,6 +84,9 @@ func (d DisabledTransaction) IsReadOnly() bool {
 }
 
 type DoltTransaction struct {
+	// branches holds the branch states loaded in this transaction. They're dropped when it stops being its session's
+	// transaction (see DoltSession.SetTransaction). Guarded by the session's mutex.
+	branches           *branchStates
 	dbStartPoints      map[string]dbRoot
 	savepoints         []savepoint
 	postgresSavepoints bool
@@ -107,11 +110,25 @@ func NewDoltTransaction(
 	dbs []SqlDatabase,
 	tCharacteristic sql.TransactionCharacteristic,
 ) (*DoltTransaction, error) {
+	return newDoltTransaction(ctx, dbs, tCharacteristic, func(*doltdb.DoltDB, error) bool { return false })
+}
+
+// newDoltTransaction leaves out of the transaction any database whose root can't be read and for which
+// |skipOnError| returns true.
+func newDoltTransaction(
+	ctx *sql.Context,
+	dbs []SqlDatabase,
+	tCharacteristic sql.TransactionCharacteristic,
+	skipOnError func(ddb *doltdb.DoltDB, err error) bool,
+) (*DoltTransaction, error) {
 
 	startPoints := make(map[string]dbRoot)
 	for _, db := range dbs {
 		nomsRoot, err := db.DbData().Ddb.NomsRoot(ctx)
 		if err != nil {
+			if skipOnError(db.DbData().Ddb, err) {
+				continue
+			}
 			return nil, err
 		}
 
@@ -124,6 +141,7 @@ func NewDoltTransaction(
 	}
 
 	return &DoltTransaction{
+		branches:        newBranchStates(),
 		dbStartPoints:   startPoints,
 		tCharacteristic: tCharacteristic,
 	}, nil

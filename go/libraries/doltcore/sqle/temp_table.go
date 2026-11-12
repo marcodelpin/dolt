@@ -84,7 +84,10 @@ func NewTempTable(
 		return nil, fmt.Errorf("database %s not found in session", db)
 	}
 
-	ws := dbState.WorkingSet()
+	ws, err := dbState.WorkingSet(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if ws == nil {
 		return nil, doltdb.ErrOperationNotSupportedInDetachedHead
 	}
@@ -151,7 +154,7 @@ func NewTempTable(
 		opts:      opts,
 	}
 
-	tempTable.writeSession = writer.NewWriteSession(db, newWs, ait, setTempTableRoot(tempTable), opts)
+	tempTable.writeSession = writer.NewDetachedWriteSession(db, newWs, ait, setTempTableRoot(tempTable), opts)
 	tempTable.ed, err = tempTable.writeSession.GetTableWriter(ctx, doltdb.TableName{Name: name})
 	if err != nil {
 		return nil, err
@@ -180,7 +183,10 @@ func setTempTableRoot(t *TempTable) func(ctx *sql.Context, dbName string, newRoo
 			return fmt.Errorf("database %s not found in session", t.dbName)
 		}
 
-		ws := dbState.WorkingSet()
+		ws, err := dbState.WorkingSet(ctx)
+		if err != nil {
+			return err
+		}
 		if ws == nil {
 			return doltdb.ErrOperationNotSupportedInDetachedHead
 		}
@@ -191,7 +197,7 @@ func setTempTableRoot(t *TempTable) func(ctx *sql.Context, dbName string, newRoo
 			return err
 		}
 
-		writeSession := writer.NewWriteSession(t.dbName, newWs, ait, setTempTableRoot(t), t.opts)
+		writeSession := writer.NewDetachedWriteSession(t.dbName, newWs, ait, setTempTableRoot(t), t.opts)
 		ed, err := writeSession.GetTableWriter(ctx, doltdb.TableName{Name: t.tableName})
 		if err != nil {
 			return err
@@ -295,10 +301,14 @@ func (t *TempTable) LookupPartitions(ctx *sql.Context, lookup sql.IndexLookup) (
 }
 
 func (t *TempTable) PartitionRows(ctx *sql.Context, partition sql.Partition) (sql.RowIter, error) {
+	return t.PartitionValueRowWriter(ctx, partition, sql.ColSet{})
+}
+
+func (t *TempTable) PartitionValueRowWriter(ctx *sql.Context, partition sql.Partition, columnIds sql.ColSet) (sql.ValueRowWriter, error) {
 	if !t.lookup.IsEmpty() {
-		return index.RowIterForIndexLookup(ctx, t, t.lookup, t.pkSch, nil)
+		return index.RowIterForIndexLookup(ctx, t, t.lookup, t.pkSch, nil, columnIds)
 	} else {
-		return partitionRows(ctx, t.table, nil, partition)
+		return partitionRows(ctx, t.table, nil, partition, columnIds)
 	}
 }
 
